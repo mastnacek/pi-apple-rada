@@ -67,94 +67,44 @@ const WRITE_TOOL = [{
 const APPLE_DOCS = {
   status: 'zobrazí aktuální stav konfigurace, modely a providera',
   preset: 'rychlé přepnutí presetu modelů (glm | quality | high | balanced)',
-  provider: 'výběr providera (opencode-go | opencode-zen | openrouter | zai-coding-cn | openai | xai)',
+  provider: 'výběr providera (openrouter | zai-coding-cn | kimi-coding | google | ...)',
   model: 'přepsání modelu pro konkrétního člena rady',
   setup: 'spustí interaktivního průvodce výběrem modelů',
   help: 'zobrazí nápovědu a přehled členů rady',
 };
 
-const getConfiguredPiProvidersAndModels = (ctx) => {
-  const auth = getPiAuth();
-  const configuredProviders = new Map();
-  const modelsByProvider = new Map();
-
+/**
+ * Discovers ONLY the providers that are actually authenticated / set up in Pi.
+ */
+const getConnectedPiProviders = () => {
   const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+  const auth = getPiAuth();
+  const providers = new Set();
 
-  // 1. Discover all connected providers from auth.json
+  // 1. Providers from auth.json
   for (const [p, val] of Object.entries(auth)) {
     const token = val?.key || val?.access || val?.token || '';
-    if (token) {
-      configuredProviders.set(p, {
-        id: p,
-        connected: true,
-        source: 'auth.json',
-      });
-    }
+    if (token) providers.add(p);
   }
 
-  // 2. Discover providers from models.json (e.g. ollama, custom gateways)
-  const modelsJsonPath = path.join(agentDir, 'models.json');
-  if (fs.existsSync(modelsJsonPath)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(modelsJsonPath, 'utf8'));
+  // 2. Providers configured in models.json
+  try {
+    const modelsPath = path.join(agentDir, 'models.json');
+    if (fs.existsSync(modelsPath)) {
+      const data = JSON.parse(fs.readFileSync(modelsPath, 'utf8'));
       if (data?.providers) {
-        for (const [pName, pVal] of Object.entries(data.providers)) {
-          const existing = configuredProviders.get(pName) || { id: pName, connected: true, source: 'models.json' };
-          if (pVal.baseUrl) existing.baseUrl = pVal.baseUrl;
-          if (Array.isArray(pVal.models)) {
-            const list = pVal.models.map(m => (typeof m === 'string' ? m : m?.id)).filter(Boolean);
-            modelsByProvider.set(pName, list);
-          }
-          configuredProviders.set(pName, existing);
-        }
-      }
-    } catch {
-      // Ignore
-    }
-  }
-
-  // 3. Discover models from models-store.json (cached model catalogues in Pi)
-  const modelsStorePath = path.join(agentDir, 'models-store.json');
-  if (fs.existsSync(modelsStorePath)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(modelsStorePath, 'utf8'));
-      for (const [pName, pVal] of Object.entries(data)) {
-        if (Array.isArray(pVal?.models)) {
-          const list = pVal.models.map(m => (typeof m === 'string' ? m : m?.id)).filter(Boolean);
-          if (list.length > 0) {
-            const existingList = modelsByProvider.get(pName) || [];
-            for (const item of list) {
-              if (!existingList.includes(item)) existingList.push(item);
-            }
-            modelsByProvider.set(pName, existingList);
+        for (const [p, val] of Object.entries(data.providers)) {
+          if (val?.apiKey || val?.baseUrl || (Array.isArray(val?.models) && val.models.length > 0)) {
+            providers.add(p);
           }
         }
       }
-    } catch {
-      // Ignore
     }
+  } catch {
+    // Ignore
   }
 
-  // 4. Discover runtime models from ctx.modelRegistry if available
-  if (ctx?.modelRegistry) {
-    try {
-      if (typeof ctx.modelRegistry.getAll === 'function') {
-        const allModels = ctx.modelRegistry.getAll();
-        for (const m of allModels) {
-          if (m?.provider) {
-            configuredProviders.set(m.provider, configuredProviders.get(m.provider) || { id: m.provider, connected: true });
-            const list = modelsByProvider.get(m.provider) || [];
-            if (m.id && !list.includes(m.id)) list.push(m.id);
-            modelsByProvider.set(m.provider, list);
-          }
-        }
-      }
-    } catch {
-      // Ignore
-    }
-  }
-
-  // 5. Check environment variables
+  // 3. Providers with active environment variables
   const envMap = {
     'opencode-go': ['OC_GO_CC_API_KEY', 'OPENCODE_API_KEY'],
     'opencode-zen': ['OPENCODE_API_KEY', 'ZEN_API_KEY', 'OC_GO_CC_API_KEY'],
@@ -172,35 +122,114 @@ const getConfiguredPiProvidersAndModels = (ctx) => {
 
   for (const [p, vars] of Object.entries(envMap)) {
     if (vars.some(v => !!process.env[v])) {
-      configuredProviders.set(p, configuredProviders.get(p) || { id: p, connected: true, source: 'env' });
+      providers.add(p);
     }
   }
 
-  // If no providers found in Pi at all, fallback to known presets
-  if (configuredProviders.size === 0) {
-    configuredProviders.set('opencode-go', { id: 'opencode-go', connected: false });
-    configuredProviders.set('openrouter', { id: 'openrouter', connected: false });
+  if (providers.size === 0) {
+    providers.add('openrouter');
+    providers.add('opencode-go');
   }
 
-  return {
-    providers: Array.from(configuredProviders.values()),
-    getModels: (provider) => {
-      const found = modelsByProvider.get(provider) || [];
-      if (found.length > 0) return found;
-      if (provider === 'opencode-go') return ['glm-5.3', 'kimi-k3', 'qwen3.8-max', 'deepseek-v4-pro', 'deepseek-v4-flash'];
-      if (provider === 'opencode-zen') return ['grok-4.6', 'gpt-5.6-luna', 'kimi-k3', 'deepseek-v4-pro'];
-      if (provider === 'zai-coding-cn') return ['glm-5.2', 'glm-5.1', 'glm-5-turbo', 'glm-4.7', 'glm-4.6v'];
-      if (provider === 'kimi-coding') return ['k3', 'k3-256k', 'kimi-for-coding', 'kimi-for-coding-highspeed'];
-      if (provider === 'moonshotai') return ['kimi-k2-thinking', 'kimi-k2-thinking-turbo', 'kimi-k2-0905-preview'];
-      if (provider === 'openai') return ['gpt-5.6-sol', 'gpt-5.6-luna'];
-      if (provider === 'xai') return ['grok-4.6', 'grok-4.5'];
-      return [];
-    },
-    getBaseUrl: (provider) => {
-      const entry = configuredProviders.get(provider);
-      return entry?.baseUrl || PROVIDERS[provider]?.baseUrl || '';
+  return Array.from(providers);
+};
+
+/**
+ * Retrieves the list of available model IDs for a specific provider.
+ */
+const getModelsForProvider = (provider, ctx) => {
+  const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+  const models = new Set();
+
+  // 1. From models-store.json (cached catalogues)
+  try {
+    const storePath = path.join(agentDir, 'models-store.json');
+    if (fs.existsSync(storePath)) {
+      const data = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+      if (Array.isArray(data[provider]?.models)) {
+        for (const m of data[provider].models) {
+          const id = typeof m === 'string' ? m : m?.id;
+          if (id) models.add(id);
+        }
+      }
     }
-  };
+  } catch {
+    // Ignore
+  }
+
+  // 2. From models.json
+  try {
+    const modelsPath = path.join(agentDir, 'models.json');
+    if (fs.existsSync(modelsPath)) {
+      const data = JSON.parse(fs.readFileSync(modelsPath, 'utf8'));
+      if (Array.isArray(data.providers?.[provider]?.models)) {
+        for (const m of data.providers[provider].models) {
+          const id = typeof m === 'string' ? m : m?.id;
+          if (id) models.add(id);
+        }
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  // 3. From ctx.modelRegistry for this specific provider
+  if (ctx?.modelRegistry) {
+    try {
+      if (typeof ctx.modelRegistry.getModels === 'function') {
+        const list = ctx.modelRegistry.getModels(provider);
+        if (Array.isArray(list)) {
+          for (const m of list) {
+            const id = typeof m === 'string' ? m : m?.id;
+            if (id) models.add(id);
+          }
+        }
+      } else if (typeof ctx.modelRegistry.getAll === 'function') {
+        const list = ctx.modelRegistry.getAll();
+        if (Array.isArray(list)) {
+          for (const m of list) {
+            if (m?.provider === provider) {
+              const id = typeof m === 'string' ? m : m?.id;
+              if (id) models.add(id);
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  // 4. Default fallbacks if no models found in store
+  if (models.size === 0) {
+    if (provider === 'opencode-go') return ['glm-5.3', 'kimi-k3', 'qwen3.8-max', 'deepseek-v4-pro', 'deepseek-v4-flash'];
+    if (provider === 'opencode-zen') return ['grok-4.6', 'gpt-5.6-luna', 'kimi-k3', 'deepseek-v4-pro'];
+    if (provider === 'zai-coding-cn') return ['glm-5.2', 'glm-5.1', 'glm-5-turbo', 'glm-4.7', 'glm-4.6v'];
+    if (provider === 'kimi-coding') return ['k3', 'k3-256k', 'kimi-for-coding', 'kimi-for-coding-highspeed'];
+    if (provider === 'moonshotai') return ['kimi-k2-thinking', 'kimi-k2-thinking-turbo', 'kimi-k2-0905-preview'];
+    if (provider === 'openai') return ['gpt-5.6-sol', 'gpt-5.6-luna'];
+    if (provider === 'xai') return ['grok-4.6', 'grok-4.5'];
+    if (provider === 'google') return ['gemini-2.5-flash', 'gemini-3.7-flash'];
+    if (provider === 'anthropic') return ['claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-1'];
+  }
+
+  return Array.from(models);
+};
+
+const getProviderBaseUrl = (provider) => {
+  const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+  try {
+    const modelsPath = path.join(agentDir, 'models.json');
+    if (fs.existsSync(modelsPath)) {
+      const data = JSON.parse(fs.readFileSync(modelsPath, 'utf8'));
+      if (data.providers?.[provider]?.baseUrl) {
+        return data.providers[provider].baseUrl;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return PROVIDERS[provider]?.baseUrl || '';
 };
 
 /**
@@ -253,7 +282,7 @@ export default function (pi) {
     const targetUi = ui || activeUi;
     if (!targetUi) return null;
     
-    const choice = await targetUi.select('Vyber preset modelů pro Apple Advisory Board:', [
+    const choice = await targetUi.select('Vyber konfiguraci pro Apple Advisory Board:', [
       'GLM-5.3 Apple Rada (Vše GLM-5.3 · OpenCode Go · Výchozí)',
       'Quality / Frontier (Grok 4.6 + GPT 5.6 Luna + Kimi K3 · OpenCode Zen)',
       'OpenCode Go (High Quality: Kimi K3 + Qwen 3.8 Max)',
@@ -279,35 +308,35 @@ export default function (pi) {
       applyPreset(config, PRESETS.balanced);
       targetUi.notify('OpenCode Go (Balanced) preset nakonfigurován.', 'info');
     } else if (choice) {
-      // Custom Configuration from user's Pi setup
-      const auth = getPiAuth();
-      const { providers: configuredList, getModels, getBaseUrl } = getConfiguredPiProvidersAndModels(ctx);
-
+      // 1. First, select the provider from actually connected Pi providers
+      const connectedList = getConnectedPiProviders();
       const customProviderOption = '[Zadat jiného providera...]';
-      const providerChoices = configuredList.map(p => ({
-        id: p.id,
-        label: p.connected ? `${p.id} (připojeno v Pi)` : p.id
+
+      const providerChoices = connectedList.map(p => ({
+        id: p,
+        label: p
       }));
 
       const options = [...providerChoices.map(c => c.label), customProviderOption];
 
-      const selectedLabel = await targetUi.select('Vyber providera z tvého Pi:', options);
+      const selectedLabel = await targetUi.select('1. Vyber providera z tvého Pi:', options);
 
       let provider = '';
       if (!selectedLabel || selectedLabel === customProviderOption) {
         provider = await targetUi.input('Zadej id providera (např. openrouter, zai-coding-cn, opencode-go):', 'openrouter');
       } else {
-        const found = providerChoices.find(c => c.label === selectedLabel);
-        provider = found ? found.id : selectedLabel.split(' ')[0];
+        provider = selectedLabel;
       }
 
       config.provider = provider;
       config.configured = true;
       config.mode = 'standard';
 
-      const providerModels = getModels(provider);
-      const defaultBaseUrl = getBaseUrl(provider) || PROVIDERS[provider]?.baseUrl || '';
+      // 2. Load models available under THIS selected provider
+      const providerModels = getModelsForProvider(provider, ctx);
+      const defaultBaseUrl = getProviderBaseUrl(provider);
 
+      const auth = getPiAuth();
       const hasAuthToken = !!(auth[provider]?.key || auth[provider]?.access || auth[provider]?.token);
       let baseUrl = defaultBaseUrl;
       let apiKeyEnv = PROVIDERS[provider]?.apiKeyEnv || (provider.toUpperCase().replace(/-/g, '_') + '_API_KEY');
@@ -322,7 +351,7 @@ export default function (pi) {
         apiKeyEnv = await targetUi.input('Název env proměnné pro API klíč:', apiKeyEnv);
       }
 
-      // Configure each model role cleanly
+      // 3. Configure each model role from the models available under the chosen provider
       const selectModelForRole = async (roleName, defaultModel) => {
         const modelOptions = (providerModels || [])
           .map(m => (typeof m === 'string' ? m : (m?.id || String(m))))
@@ -337,13 +366,17 @@ export default function (pi) {
         const uniqueOptions = Array.from(new Set(modelOptions));
         const selectOptions = [...uniqueOptions, customOption];
 
+        const defaultChoice = defaultModel && uniqueOptions.includes(defaultModel)
+          ? defaultModel
+          : uniqueOptions[0];
+
         const selected = await targetUi.select(
-          `Vyber model pro ${roleName} (Výchozí: ${defaultModel || uniqueOptions[0]}):`,
+          `Vyber model pro ${roleName} (${provider}):`,
           selectOptions
         );
 
         if (!selected || selected === customOption) {
-          return await targetUi.input(`Zadej název modelu pro ${roleName}:`, defaultModel || uniqueOptions[0]);
+          return await targetUi.input(`Zadej název modelu pro ${roleName}:`, defaultChoice);
         }
 
         return selected;
@@ -651,11 +684,11 @@ export default function (pi) {
       }
 
       if (cmd === 'provider') {
-        const { providers } = getConfiguredPiProvidersAndModels();
+        const providers = getConnectedPiProviders();
         const items = providers.map(p => ({
-          value: p.id,
-          label: `provider ${p.id}`,
-          description: p.connected ? `${p.id} (připojeno v Pi)` : p.id
+          value: p,
+          label: `provider ${p}`,
+          description: p
         }));
         const filtered = items.filter(i => i.value.startsWith(arg));
         return filtered.length > 0 ? filtered : null;
