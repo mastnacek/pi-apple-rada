@@ -88,6 +88,79 @@ const APPLE_DOCS = {
   help: "zobrazí nápovědu a přehled členů rady",
 };
 
+const getAvailableProvidersAndModels = (ctx) => {
+  const auth = getPiAuth();
+  const foundProviders = new Set([
+    'opencode-go',
+    'opencode-zen',
+    'openai',
+    'anthropic',
+    'google',
+    'deepseek',
+    'xai',
+    'groq',
+    'openrouter',
+    'ollama',
+    ...Object.keys(auth)
+  ]);
+
+  const modelsByProvider = new Map();
+
+  // Try reading ~/.pi/agent/models.json
+  const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+  const modelsJsonPath = path.join(agentDir, 'models.json');
+  if (fs.existsSync(modelsJsonPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(modelsJsonPath, 'utf8'));
+      if (data?.providers) {
+        for (const [pName, pVal] of Object.entries(data.providers)) {
+          foundProviders.add(pName);
+          if (Array.isArray(pVal.models)) {
+            modelsByProvider.set(pName, pVal.models.map(m => (typeof m === 'string' ? m : m.id)));
+          }
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Also check ctx.modelRegistry if present
+  if (ctx?.modelRegistry) {
+    try {
+      if (typeof ctx.modelRegistry.getProviders === 'function') {
+        for (const p of ctx.modelRegistry.getProviders()) foundProviders.add(p);
+      }
+      if (typeof ctx.modelRegistry.getAll === 'function') {
+        const allModels = ctx.modelRegistry.getAll();
+        for (const m of allModels) {
+          if (m?.provider) {
+            foundProviders.add(m.provider);
+            const list = modelsByProvider.get(m.provider) || [];
+            if (m.id && !list.includes(m.id)) list.push(m.id);
+            modelsByProvider.set(m.provider, list);
+          }
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  return {
+    providers: Array.from(foundProviders),
+    getModels: (provider) => {
+      const found = modelsByProvider.get(provider) || [];
+      if (found.length > 0) return found;
+      if (provider === 'opencode-go') return ['glm-5.3', 'kimi-k3', 'qwen3.8-max', 'deepseek-v4-pro', 'deepseek-v4-flash'];
+      if (provider === 'opencode-zen') return ['grok-4.6', 'gpt-5.6-luna', 'kimi-k3', 'deepseek-v4-pro'];
+      if (provider === 'openai') return ['gpt-5.6-sol', 'gpt-5.6-luna'];
+      if (provider === 'xai') return ['grok-4.6', 'grok-4.5'];
+      return [];
+    }
+  };
+};
+
 /**
  * Pi Coding Agent extension entry point.
  * Ref: https://pi.dev/docs/extensions
@@ -133,7 +206,7 @@ export default function (pi) {
     return new Deliberator({ apiClient, config });
   };
 
-  const configureHarness = async (ui) => {
+  const configureHarness = async (ui, ctx) => {
     const targetUi = ui || activeUi;
     if (!targetUi) return null;
 
@@ -174,34 +247,29 @@ export default function (pi) {
     } else if (choice) {
       // Custom Configuration
       const auth = getPiAuth();
-      const { getProviders, getModels } = await loadPiAi();
-      const availableProviders = getProviders();
+      const { providers: availableProviders, getModels } = getAvailableProvidersAndModels(ctx);
 
-      const providerChoices = availableProviders.map((p) => {
+      const providerChoices = availableProviders.map(p => {
         const connected = isProviderConnected(p, auth);
         return {
           id: p,
-          label: connected ? `${p} (připojeno)` : p,
+          label: connected ? `${p} (připojeno)` : p
         };
       });
 
-      const providerLabelChoice =
-        (await targetUi.select(
-          "Vyber providera:",
-          providerChoices.map((c) => c.label),
-        )) || "opencode-go";
+      const providerLabelChoice = await targetUi.select(
+        'Vyber providera:',
+        providerChoices.map(c => c.label)
+      ) || 'opencode-go';
 
-      const selectedProviderChoice =
-        providerChoices.find((c) => c.label === providerLabelChoice) ||
-        providerChoices[0];
+      const selectedProviderChoice = providerChoices.find(c => c.label === providerLabelChoice) || providerChoices[0];
       const provider = selectedProviderChoice.id;
       config.provider = provider;
       config.configured = true;
-      config.mode = "standard";
+      config.mode = 'standard';
 
       const providerModels = getModels(provider);
-      const defaultBaseUrl =
-        providerModels.length > 0 ? providerModels[0].baseUrl : "";
+      const defaultBaseUrl = PROVIDERS[provider]?.baseUrl || '';
 
       const defaultEnvVars = {
         "opencode-go": "OC_GO_CC_API_KEY",
@@ -389,8 +457,8 @@ export default function (pi) {
       return;
     }
 
-    if (cmd === "setup") {
-      await configureHarness(ctx.ui);
+    if (cmd === 'setup') {
+      await configureHarness(ctx.ui, ctx);
       refreshAppleStatus(ctx);
       return;
     }
@@ -501,7 +569,7 @@ export default function (pi) {
 
     let config = getLocalConfig();
     if (!config || !config.configured) {
-      config = await configureHarness(ctx.ui);
+      config = await configureHarness(ctx.ui, ctx);
     }
 
     if (!config) {
@@ -1129,12 +1197,12 @@ export default function (pi) {
   });
 
   // 4. Register slash command: /apple-config
-  pi.registerCommand("apple-config", {
-    description: "Konfigurace modelů a presetů pro Apple Advisory Board",
+  pi.registerCommand('apple-config', {
+    description: 'Konfigurace modelů a presetů pro Apple Advisory Board',
     getArgumentCompletions: () => null,
     handler: async (_args, ctx) => {
-      await configureHarness(ctx.ui);
+      await configureHarness(ctx.ui, ctx);
       refreshAppleStatus(ctx);
-    },
+    }
   });
 }
