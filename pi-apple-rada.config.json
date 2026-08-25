@@ -50,6 +50,18 @@
         "mastnacek": "glm-5.3",
         "synthesis": "kimi-k3"
       }
+    },
+    "zenfree": {
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "apiKeyEnv": "OPENCODE_API_KEY",
+      "defaultModels": {
+        "jobs": "deepseek-v4-flash-free",
+        "woz": "nemotron-3-ultra-free",
+        "ive": "hy3-free",
+        "karpathy": "big-pickle",
+        "mastnacek": "mimo-v2.5-free",
+        "synthesis": "big-pickle"
+      }
     }
   },
   "panel": {

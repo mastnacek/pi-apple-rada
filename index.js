@@ -88,13 +88,13 @@ const WRITE_TOOL = [
 ];
 
 const APPLE_DOCS = {
-  status: "zobrazí aktuální stav konfigurace, modely a providera",
-  preset: "rychlé přepnutí presetu modelů (glm | quality | high | balanced)",
-  provider:
-    "výběr providera (openrouter | zai-coding-cn | kimi-coding | google | ...)",
-  model: "přepsání modelu pro konkrétního člena rady",
-  setup: "spustí interaktivního průvodce výběrem modelů",
-  help: "zobrazí nápovědu a přehled členů rady",
+  status: 'zobrazí aktuální stav konfigurace nebo probíhajícího jednání',
+  detail: 'zobrazí kompletní detailní vyjádření všech person z posledního jednání',
+  preset: 'rychlé přepnutí presetu modelů (glm | zenfree | quality | high | balanced)',
+  provider: 'výběr providera (openrouter | zai-coding-cn | kimi-coding | google | ...)',
+  model: 'přepsání modelu pro konkrétního člena rady',
+  setup: 'spustí interaktivního průvodce výběrem modelů',
+  help: 'zobrazí nápovědu a přehled členů rady',
 };
 
 /**
@@ -135,11 +135,18 @@ const getConnectedPiProviders = () => {
 
   // 3. Free zenfree provider (if pi-zen-fallback installed or in settings.json)
   try {
-    const settingsPath = path.join(agentDir, 'settings.json');
+    const settingsPath = path.join(agentDir, "settings.json");
     if (fs.existsSync(settingsPath)) {
-      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      if (Array.isArray(data?.packages) && data.packages.some(pkg => typeof pkg === 'string' && (pkg.includes('zen-fallback') || pkg.includes('zenfree')))) {
-        providers.add('zenfree');
+      const data = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+      if (
+        Array.isArray(data?.packages) &&
+        data.packages.some(
+          (pkg) =>
+            typeof pkg === "string" &&
+            (pkg.includes("zen-fallback") || pkg.includes("zenfree")),
+        )
+      ) {
+        providers.add("zenfree");
       }
     }
   } catch {
@@ -301,6 +308,9 @@ const getProviderBaseUrl = (provider) => {
   }
   return PROVIDERS[provider]?.baseUrl || "";
 };
+
+let lastDeliberation = null;
+let activeDeliberation = null;
 
 /**
  * Pi Coding Agent extension entry point.
@@ -625,7 +635,56 @@ export default function (pi) {
     }
 
     if (cmd === "status") {
+      if (activeDeliberation) {
+        ctx.ui.notify(`⏳ Právě probíhá jednání Apple rady: ${activeDeliberation.stage}\nZadání: "${activeDeliberation.prompt}"`, "info");
+        return;
+      }
       showAppleStatus(ctx);
+      return;
+    }
+
+    if (cmd === "detail" || cmd === "last" || cmd === "transcript") {
+      if (!lastDeliberation) {
+        ctx.ui.notify("Zatím neproběhlo žádné jednání rady. Spusť nejprve: /apple <téma>", "warning");
+        return;
+      }
+      const d = lastDeliberation;
+      const text = [
+        "# 🍎 Apple Advisory Board — Detail posledního jednání",
+        `**🎯 Zadání:** ${d.prompt}`,
+        "",
+        "---",
+        "### 🍎 Steve Jobs (Vize, produkt & radikální redukce)",
+        d.panelResponses?.jobs || "Není k dispozici",
+        "",
+        "---",
+        "### 🔧 Steve Wozniak (Inženýrství, architektura & otevřenost)",
+        d.panelResponses?.woz || "Není k dispozici",
+        "",
+        "---",
+        "### ✏️ Jony Ive (Design, UX, emoce & péče)",
+        d.panelResponses?.ive || "Není k dispozici",
+        "",
+        "---",
+        "### 🤖 Andrej Karpathy (AI/ML, evaly & spolehlivost)",
+        d.panelResponses?.karpathy || "Není k dispozici",
+        "",
+        "---",
+        "### 👤 mastnáček (Advokát kontextu & Křížová palba)",
+        d.contextAdvocateResponse || "Není k dispozici",
+        "",
+        "---",
+        "### ⚖️ Finální verdikt",
+        d.synthesis || "Není k dispozici",
+        "",
+        "---",
+        `*Modely: Jobs (${d.models?.jobs}), Woz (${d.models?.woz}), Ive (${d.models?.ive}), Karpathy (${d.models?.karpathy}), mastnáček (${d.models?.mastnacek}), Syntéza (${d.models?.synthesis}) | Tokeny: ${d.usage?.totalTokens || 0}*`
+      ].join("\n\n");
+
+      pi.sendMessage(
+        { customType: "apple-rada-detail", content: text, display: true },
+        { triggerTurn: false }
+      );
       return;
     }
 
@@ -737,7 +796,12 @@ export default function (pi) {
       return;
     }
 
-    const prompt = raw;
+    let isVerbose = false;
+    let prompt = raw;
+    if (raw.startsWith("-v ") || raw.startsWith("--verbose ")) {
+      isVerbose = true;
+      prompt = raw.replace(/^-(v|-verbose)\s+/, "");
+    }
 
     let config = getLocalConfig();
     if (!config || !config.configured) {
@@ -750,38 +814,47 @@ export default function (pi) {
     }
 
     ctx.ui.setStatus("apple-rada", "🍎 Svolávám Apple Advisory Board…");
+    activeDeliberation = { prompt, stage: "Zahájení..." };
 
     try {
       const deliberator = getDeliberator();
       const result = await deliberator.deliberate(prompt, {
         onProgress: (stage, data) => {
           if (stage === "panel-start") {
+            activeDeliberation.stage = `Panel: Jobs (${data.models.jobs}), Woz (${data.models.woz}), Ive (${data.models.ive}), Karpathy (${data.models.karpathy})`;
             ctx.ui.setStatus(
               "apple-rada",
-              `⏳ Panel: Jobs (${data.models.jobs}), Woz (${data.models.woz}), Ive (${data.models.ive}), Karpathy (${data.models.karpathy})`,
+              `⏳ ${activeDeliberation.stage}`,
             );
           } else if (stage === "panel-end") {
+            activeDeliberation.stage = "Vyjádření poradců přijata";
             ctx.ui.setStatus("apple-rada", "✅ Vyjádření poradců přijata");
           } else if (stage === "context-start") {
+            activeDeliberation.stage = `Advokát kontextu mastnáček (${data.model})`;
             ctx.ui.setStatus(
               "apple-rada",
-              `👤 Advokát kontextu mastnáček (${data.model})`,
+              `👤 ${activeDeliberation.stage}`,
             );
           } else if (stage === "context-end") {
+            activeDeliberation.stage = "Uzemnění a křížová palba hotovy";
             ctx.ui.setStatus(
               "apple-rada",
               "✅ Uzemnění a křížová palba hotovy",
             );
           } else if (stage === "synthesis-start") {
+            activeDeliberation.stage = `Sestavuji verdikt (${data.model})`;
             ctx.ui.setStatus(
               "apple-rada",
-              `⚖️ Sestavuji verdikt (${data.model})`,
+              `⚖️ ${activeDeliberation.stage}`,
             );
           } else if (stage === "synthesis-end") {
+            activeDeliberation.stage = "Verdikt dokončen";
             ctx.ui.setStatus("apple-rada", "✅ Verdikt dokončen");
           }
         },
       });
+
+      lastDeliberation = { prompt, ...result };
 
       // File-agent step: if code was produced, ask a cheap model to extract files
       ctx.ui.setStatus("apple-rada", "💾 Kontrola generovaných souborů…");
@@ -844,14 +917,54 @@ export default function (pi) {
           ? `\n\n---\n💾 Uloženo ${savedFiles.length} soubor${savedFiles.length > 1 ? "ů" : ""}: ${savedFiles.map((f) => `\`${f}\``).join(", ")}`
           : "";
 
-      pi.sendMessage(
-        {
-          customType: "apple-rada-answer",
-          content: result.synthesis + filesSummary,
-          display: true,
-        },
-        { triggerTurn: false },
-      );
+      if (isVerbose) {
+        const fullDetail = [
+          "# 🍎 Apple Advisory Board — Detailní vyjádření",
+          `**🎯 Zadání:** ${prompt}`,
+          "",
+          "---",
+          "### 🍎 Steve Jobs",
+          result.panelResponses?.jobs || "",
+          "",
+          "---",
+          "### 🔧 Steve Wozniak",
+          result.panelResponses?.woz || "",
+          "",
+          "---",
+          "### ✏️ Jony Ive",
+          result.panelResponses?.ive || "",
+          "",
+          "---",
+          "### 🤖 Andrej Karpathy",
+          result.panelResponses?.karpathy || "",
+          "",
+          "---",
+          "### 👤 mastnáček",
+          result.contextAdvocateResponse || "",
+          "",
+          "---",
+          "### ⚖️ Finální verdikt",
+          result.synthesis || "",
+        ].join("\n\n");
+
+        pi.sendMessage(
+          {
+            customType: "apple-rada-detail",
+            content: fullDetail + filesSummary,
+            display: true,
+          },
+          { triggerTurn: false },
+        );
+      } else {
+        pi.sendMessage(
+          {
+            customType: "apple-rada-answer",
+            content: result.synthesis + filesSummary,
+            display: true,
+          },
+          { triggerTurn: false },
+        );
+      }
 
       if (savedFiles.length > 0) {
         ctx.ui.notify(
@@ -862,6 +975,7 @@ export default function (pi) {
     } catch (error) {
       ctx.ui.notify(`Debata Apple rady selhala: ${error.message}`, "error");
     } finally {
+      activeDeliberation = null;
       refreshAppleStatus(ctx);
     }
   };
