@@ -1,0 +1,73 @@
+{
+  "name": "pi-apple-rada",
+  "version": "1.0.0",
+  "description": "Apple Advisory Board multi-model deliberation harness (Jobs, Woz, Ive, Karpathy, mastnáček) for Pi Coding Agent",
+  "main": "index.js",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./index.js": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "pi": {
+    "extensions": ["./index.js"]
+  },
+  "bin": {
+    "pi-apple-rada": "bin/pi-apple-rada.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "index.js",
+    "pi-apple-rada.config.json",
+    "test/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node bin/pi-apple-rada.js",
+    "test": "node --test test/offline.test.js",
+    "test:stream": "node verify-stream.mjs",
+    "test:all": "node --test test/offline.test.js && node verify-stream.mjs"
+  },
+  "keywords": [
+    "pi",
+    "apple",
+    "rada",
+    "advisory",
+    "deliberation",
+    "jobs",
+    "woz",
+    "ive",
+    "karpathy",
+    "mastnacek",
+    "pi-package",
+    "multi-model"
+  ],
+  "author": "Jaroslav Havel (mastnáček)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mastnacek/pi-apple-rada.git"
+  },
+  "homepage": "https://github.com/mastnacek/pi-apple-rada#readme",
+  "bugs": {
+    "url": "https://github.com/mastnacek/pi-apple-rada/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "ora": "^8.0.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    }
+  }
+}

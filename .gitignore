@@ -1,0 +1,7 @@
+node_modules/
+.npm/
+*.log
+.DS_Store
+auth.json
+zdroje/
+.ruff_cache/
