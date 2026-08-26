@@ -88,13 +88,16 @@ const WRITE_TOOL = [
 ];
 
 const APPLE_DOCS = {
-  status: 'zobrazí aktuální stav konfigurace nebo probíhajícího jednání',
-  detail: 'zobrazí kompletní detailní vyjádření všech person z posledního jednání',
-  preset: 'rychlé přepnutí presetu modelů (glm | zenfree | quality | high | balanced)',
-  provider: 'výběr providera (openrouter | zai-coding-cn | kimi-coding | google | ...)',
-  model: 'přepsání modelu pro konkrétního člena rady',
-  setup: 'spustí interaktivního průvodce výběrem modelů',
-  help: 'zobrazí nápovědu a přehled členů rady',
+  status: "zobrazí aktuální stav konfigurace nebo probíhajícího jednání",
+  detail:
+    "zobrazí kompletní detailní vyjádření všech person z posledního jednání",
+  preset:
+    "rychlé přepnutí presetu modelů (glm | zenfree | quality | high | balanced)",
+  provider:
+    "výběr providera (openrouter | zai-coding-cn | kimi-coding | google | ...)",
+  model: "přepsání modelu pro konkrétního člena rady",
+  setup: "spustí interaktivního průvodce výběrem modelů",
+  help: "zobrazí nápovědu a přehled členů rady",
 };
 
 /**
@@ -636,7 +639,10 @@ export default function (pi) {
 
     if (cmd === "status") {
       if (activeDeliberation) {
-        ctx.ui.notify(`⏳ Právě probíhá jednání Apple rady: ${activeDeliberation.stage}\nZadání: "${activeDeliberation.prompt}"`, "info");
+        ctx.ui.notify(
+          `⏳ Právě probíhá jednání Apple rady: ${activeDeliberation.stage}\nZadání: "${activeDeliberation.prompt}"`,
+          "info",
+        );
         return;
       }
       showAppleStatus(ctx);
@@ -645,7 +651,10 @@ export default function (pi) {
 
     if (cmd === "detail" || cmd === "last" || cmd === "transcript") {
       if (!lastDeliberation) {
-        ctx.ui.notify("Zatím neproběhlo žádné jednání rady. Spusť nejprve: /apple <téma>", "warning");
+        ctx.ui.notify(
+          "Zatím neproběhlo žádné jednání rady. Spusť nejprve: /apple <téma>",
+          "warning",
+        );
         return;
       }
       const d = lastDeliberation;
@@ -678,12 +687,12 @@ export default function (pi) {
         d.synthesis || "Není k dispozici",
         "",
         "---",
-        `*Modely: Jobs (${d.models?.jobs}), Woz (${d.models?.woz}), Ive (${d.models?.ive}), Karpathy (${d.models?.karpathy}), mastnáček (${d.models?.mastnacek}), Syntéza (${d.models?.synthesis}) | Tokeny: ${d.usage?.totalTokens || 0}*`
+        `*Modely: Jobs (${d.models?.jobs}), Woz (${d.models?.woz}), Ive (${d.models?.ive}), Karpathy (${d.models?.karpathy}), mastnáček (${d.models?.mastnacek}), Syntéza (${d.models?.synthesis}) | Tokeny: ${d.usage?.totalTokens || 0}*`,
       ].join("\n\n");
 
       pi.sendMessage(
         { customType: "apple-rada-detail", content: text, display: true },
-        { triggerTurn: false }
+        { triggerTurn: false },
       );
       return;
     }
@@ -822,19 +831,13 @@ export default function (pi) {
         onProgress: (stage, data) => {
           if (stage === "panel-start") {
             activeDeliberation.stage = `Panel: Jobs (${data.models.jobs}), Woz (${data.models.woz}), Ive (${data.models.ive}), Karpathy (${data.models.karpathy})`;
-            ctx.ui.setStatus(
-              "apple-rada",
-              `⏳ ${activeDeliberation.stage}`,
-            );
+            ctx.ui.setStatus("apple-rada", `⏳ ${activeDeliberation.stage}`);
           } else if (stage === "panel-end") {
             activeDeliberation.stage = "Vyjádření poradců přijata";
             ctx.ui.setStatus("apple-rada", "✅ Vyjádření poradců přijata");
           } else if (stage === "context-start") {
             activeDeliberation.stage = `Advokát kontextu mastnáček (${data.model})`;
-            ctx.ui.setStatus(
-              "apple-rada",
-              `👤 ${activeDeliberation.stage}`,
-            );
+            ctx.ui.setStatus("apple-rada", `👤 ${activeDeliberation.stage}`);
           } else if (stage === "context-end") {
             activeDeliberation.stage = "Uzemnění a křížová palba hotovy";
             ctx.ui.setStatus(
@@ -843,10 +846,7 @@ export default function (pi) {
             );
           } else if (stage === "synthesis-start") {
             activeDeliberation.stage = `Sestavuji verdikt (${data.model})`;
-            ctx.ui.setStatus(
-              "apple-rada",
-              `⚖️ ${activeDeliberation.stage}`,
-            );
+            ctx.ui.setStatus("apple-rada", `⚖️ ${activeDeliberation.stage}`);
           } else if (stage === "synthesis-end") {
             activeDeliberation.stage = "Verdikt dokončen";
             ctx.ui.setStatus("apple-rada", "✅ Verdikt dokončen");
@@ -983,91 +983,97 @@ export default function (pi) {
   const getCompletions = (prefix) => {
     const tokens = prefix.split(/\s+/).filter(Boolean);
     const trailingSpace = /\s$/.test(prefix);
+    const normalizedPrefix = tokens.join(" ").toLowerCase();
 
     // Second argument completions
     if (tokens.length > 1 || (trailingSpace && tokens.length === 1)) {
       const cmd = tokens[0]?.toLowerCase();
-      const arg = (tokens.length > 1 ? tokens[1] : "").toLowerCase();
 
       if (cmd === "preset") {
         const items = [
           {
-            value: "glm",
+            value: "preset glm",
             label: "preset glm",
             description: "GLM-5.3 Apple Rada (OpenCode Go · Výchozí)",
           },
           {
-            value: "zenfree",
+            value: "preset zenfree",
             label: "preset zenfree",
             description: "ZenFree (OpenCode Zen modely zdarma · Bez klíče)",
           },
           {
-            value: "quality",
+            value: "preset quality",
             label: "preset quality",
             description:
               "Quality / Frontier (Grok 4.6 + GPT 5.6 Luna · OpenCode Zen)",
           },
           {
-            value: "high",
+            value: "preset high",
             label: "preset high",
             description: "High Quality (Kimi K3 + Qwen 3.8 Max · OpenCode Go)",
           },
           {
-            value: "balanced",
+            value: "preset balanced",
             label: "preset balanced",
             description:
               "Balanced (Kimi K3 + DeepSeek V4 Pro + GLM-5.3 · OpenCode Go)",
           },
         ];
-        const filtered = items.filter((i) => i.value.startsWith(arg));
+        const filtered = items.filter((i) =>
+          i.value.toLowerCase().startsWith(normalizedPrefix),
+        );
         return filtered.length > 0 ? filtered : null;
       }
 
       if (cmd === "provider") {
         const providers = getConnectedPiProviders();
         const items = providers.map((p) => ({
-          value: p,
+          value: `provider ${p}`,
           label: `provider ${p}`,
           description: p,
         }));
-        const filtered = items.filter((i) => i.value.startsWith(arg));
+        const filtered = items.filter((i) =>
+          i.value.toLowerCase().startsWith(normalizedPrefix),
+        );
         return filtered.length > 0 ? filtered : null;
       }
 
       if (cmd === "model") {
         const items = [
           {
-            value: "jobs",
+            value: "model jobs",
             label: "model jobs",
             description: "Steve Jobs (🍎 Vize & Redukce)",
           },
           {
-            value: "woz",
+            value: "model woz",
             label: "model woz",
             description: "Steve Wozniak (🔧 Inženýrství)",
           },
           {
-            value: "ive",
+            value: "model ive",
             label: "model ive",
             description: "Jony Ive (✏️ Design & Řemeslo)",
           },
           {
-            value: "karpathy",
+            value: "model karpathy",
             label: "model karpathy",
             description: "Andrej Karpathy (🤖 AI/ML & Evaly)",
           },
           {
-            value: "mastnacek",
+            value: "model mastnacek",
             label: "model mastnacek",
             description: "Jaroslav Havel (👤 Kontext)",
           },
           {
-            value: "synthesis",
+            value: "model synthesis",
             label: "model synthesis",
             description: "Syntetizátor / Verdikt (⚖️)",
           },
         ];
-        const filtered = items.filter((i) => i.value.startsWith(arg));
+        const filtered = items.filter((i) =>
+          i.value.toLowerCase().startsWith(normalizedPrefix),
+        );
         return filtered.length > 0 ? filtered : null;
       }
 
@@ -1077,7 +1083,7 @@ export default function (pi) {
     // First word completions
     const typed = (tokens[0] ?? "").toLowerCase();
     const items = Object.entries(APPLE_DOCS)
-      .filter(([key]) => key.startsWith(typed))
+      .filter(([key]) => key.toLowerCase().startsWith(typed))
       .map(([value, description]) => ({ value, label: value, description }));
     return items.length > 0 ? items : null;
   };
