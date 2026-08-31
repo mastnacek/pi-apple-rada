@@ -1039,42 +1039,101 @@ export default function (pi) {
       }
 
       if (cmd === "model") {
-        const items = [
-          {
-            value: "model jobs",
-            label: "model jobs",
-            description: "Steve Jobs (🍎 Vize & Redukce)",
-          },
-          {
-            value: "model woz",
-            label: "model woz",
-            description: "Steve Wozniak (🔧 Inženýrství)",
-          },
-          {
-            value: "model ive",
-            label: "model ive",
-            description: "Jony Ive (✏️ Design & Řemeslo)",
-          },
-          {
-            value: "model karpathy",
-            label: "model karpathy",
-            description: "Andrej Karpathy (🤖 AI/ML & Evaly)",
-          },
-          {
-            value: "model mastnacek",
-            label: "model mastnacek",
-            description: "Jaroslav Havel (👤 Kontext)",
-          },
-          {
-            value: "model synthesis",
-            label: "model synthesis",
-            description: "Syntetizátor / Verdikt (⚖️)",
-          },
+        const validRoles = [
+          "jobs",
+          "woz",
+          "ive",
+          "karpathy",
+          "mastnacek",
+          "synthesis",
         ];
-        const filtered = items.filter((i) =>
-          i.value.toLowerCase().startsWith(normalizedPrefix),
-        );
-        return filtered.length > 0 ? filtered : null;
+
+        if (tokens.length === 2 && !trailingSpace) {
+          const items = [
+            {
+              value: "model jobs",
+              label: "model jobs",
+              description: "Steve Jobs (🍎 Vize & Redukce)",
+            },
+            {
+              value: "model woz",
+              label: "model woz",
+              description: "Steve Wozniak (🔧 Inženýrství)",
+            },
+            {
+              value: "model ive",
+              label: "model ive",
+              description: "Jony Ive (✏️ Design & Řemeslo)",
+            },
+            {
+              value: "model karpathy",
+              label: "model karpathy",
+              description: "Andrej Karpathy (🤖 AI/ML & Evaly)",
+            },
+            {
+              value: "model mastnacek",
+              label: "model mastnacek",
+              description: "Jaroslav Havel (👤 Kontext)",
+            },
+            {
+              value: "model synthesis",
+              label: "model synthesis",
+              description: "Syntetizátor / Verdikt (⚖️)",
+            },
+          ];
+          const filtered = items.filter((i) =>
+            i.value.toLowerCase().startsWith(normalizedPrefix),
+          );
+          return filtered.length > 0 ? filtered : null;
+        }
+
+        if (tokens.length > 2 || (tokens.length === 2 && trailingSpace)) {
+          const role = tokens[1]?.toLowerCase();
+          if (!validRoles.includes(role)) return null;
+
+          const config = getLocalConfig();
+          const provider = config.provider || "opencode-go";
+          const fallbacks = customFallbackModels(provider);
+          const currentModel =
+            config.providers?.[provider]?.defaultModels?.[role] ||
+            fallbacks[role];
+
+          const modelCandidates = new Set();
+          if (currentModel) modelCandidates.add(currentModel);
+          for (const m of Object.values(fallbacks)) {
+            if (m) modelCandidates.add(m);
+          }
+
+          try {
+            const agentDir =
+              process.env.PI_CODING_AGENT_DIR ||
+              path.join(os.homedir(), ".pi", "agent");
+            const storePath = path.join(agentDir, "models-store.json");
+            if (fs.existsSync(storePath)) {
+              const data = JSON.parse(fs.readFileSync(storePath, "utf8"));
+              const provData = data[provider];
+              if (Array.isArray(provData?.models)) {
+                for (const m of provData.models) {
+                  const id = typeof m === "string" ? m : m?.id;
+                  if (id) modelCandidates.add(id);
+                }
+              }
+            }
+          } catch {
+            // Ignore
+          }
+
+          const items = Array.from(modelCandidates).map((m) => ({
+            value: `model ${role} ${m}`,
+            label: `model ${role} ${m}`,
+            description: `Nastavit model pro ${role}`,
+          }));
+
+          const filtered = items.filter((i) =>
+            i.value.toLowerCase().startsWith(normalizedPrefix),
+          );
+          return filtered.length > 0 ? filtered : null;
+        }
       }
 
       return null;
