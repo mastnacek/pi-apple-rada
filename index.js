@@ -338,6 +338,14 @@ export default function (pi) {
     refreshAppleStatus(ctx);
   });
 
+  // Drop module-level deliberation/UI state on shutdown so a later session
+  // cannot observe a previous session's advisory result (AGENTS.md §5/§6).
+  pi.on("session_shutdown", () => {
+    activeUi = null;
+    lastDeliberation = null;
+    activeDeliberation = null;
+  });
+
   const getLocalConfig = () => loadConfig();
 
   const getDeliberator = () => {
