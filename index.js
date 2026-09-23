@@ -1059,32 +1059,32 @@ export default function (pi) {
         if (tokens.length === 2 && !trailingSpace) {
           const items = [
             {
-              value: "model jobs",
+              value: "model jobs ",
               label: "model jobs",
               description: "Steve Jobs (🍎 Vize & Redukce)",
             },
             {
-              value: "model woz",
+              value: "model woz ",
               label: "model woz",
               description: "Steve Wozniak (🔧 Inženýrství)",
             },
             {
-              value: "model ive",
+              value: "model ive ",
               label: "model ive",
               description: "Jony Ive (✏️ Design & Řemeslo)",
             },
             {
-              value: "model karpathy",
+              value: "model karpathy ",
               label: "model karpathy",
               description: "Andrej Karpathy (🤖 AI/ML & Evaly)",
             },
             {
-              value: "model mastnacek",
+              value: "model mastnacek ",
               label: "model mastnacek",
               description: "Jaroslav Havel (👤 Kontext)",
             },
             {
-              value: "model synthesis",
+              value: "model synthesis ",
               label: "model synthesis",
               description: "Syntetizátor / Verdikt (⚖️)",
             },
@@ -1149,9 +1149,14 @@ export default function (pi) {
 
     // First word completions
     const typed = (tokens[0] ?? "").toLowerCase();
+    const NON_TERMINAL = new Set(["preset", "provider", "model"]);
     const items = Object.entries(APPLE_DOCS)
       .filter(([key]) => key.toLowerCase().startsWith(typed))
-      .map(([value, description]) => ({ value, label: value, description }));
+      .map(([key, description]) => ({
+        value: NON_TERMINAL.has(key) ? `${key} ` : key,
+        label: key,
+        description,
+      }));
     return items.length > 0 ? items : null;
   };
 
