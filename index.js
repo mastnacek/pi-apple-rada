@@ -320,6 +320,14 @@ let activeDeliberation = null;
  * Ref: https://pi.dev/docs/extensions
  */
 export default function (pi) {
+  /** Unsubscribers from every `pi.on()`; drained on session_shutdown (AGENTS §5). */
+  const unsubscribers = [];
+
+  /** Retain a `pi.on()` return value; older engine typings declare it void. */
+  const track = (result) => {
+    if (typeof result === "function") unsubscribers.push(result);
+  };
+
   let activeUi = null;
 
   const refreshAppleStatus = (ctx) => {
@@ -330,17 +338,18 @@ export default function (pi) {
   };
 
   // Capture active UI context from agent_start event
-  pi.on("agent_start", (_event, ctx) => {
+  track(pi.on("agent_start", (_event, ctx) => {
     activeUi = ctx?.ui;
-  });
+  }));
 
-  pi.on("session_start", (_event, ctx) => {
+  track(pi.on("session_start", (_event, ctx) => {
     refreshAppleStatus(ctx);
-  });
+  }));
 
   // Drop module-level deliberation/UI state on shutdown so a later session
   // cannot observe a previous session's advisory result (AGENTS.md §5/§6).
   pi.on("session_shutdown", () => {
+    while (unsubscribers.length > 0) unsubscribers.pop()?.();
     activeUi = null;
     lastDeliberation = null;
     activeDeliberation = null;
