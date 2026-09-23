@@ -1217,12 +1217,7 @@ export default function (pi) {
         };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        return {
-          content: [
-            { type: "text", text: `Debata Apple rady selhala: ${msg}` },
-          ],
-          details: { error: msg },
-        };
+        throw new Error(`Debata Apple rady selhala: ${msg}`);
       }
     },
   });
