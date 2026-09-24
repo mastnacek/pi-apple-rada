@@ -5,6 +5,7 @@ import os from "node:os";
 import { ApiClient } from "./lib/api.js";
 import {
   apiKeyEnvName,
+  describeScope,
   loadConfig,
   saveConfig,
   getDefaultConfig,
@@ -382,7 +383,7 @@ export default function (pi) {
     return new Deliberator({ apiClient, config });
   };
 
-  const configureHarness = async (ui, ctx) => {
+  const configureHarness = async (ui, ctx, isGlobal = false) => {
     const targetUi = ui || activeUi;
     if (!targetUi) return null;
 
@@ -575,7 +576,7 @@ export default function (pi) {
       targetUi.notify(`Vlastní konfigurace pro ${provider} dokončena.`, "info");
     }
 
-    saveConfig(config);
+    saveConfig(config, undefined, { isGlobal });
     return config;
   };
 
@@ -636,9 +637,12 @@ export default function (pi) {
 
   // 1. Register a slash command: /apple <prompt>
   const runAppleCommand = async (args, ctx) => {
-    const raw = (
+    const rawInput = (
       Array.isArray(args) ? args.join(" ") : String(args || "")
     ).trim();
+    // `--global` is accepted as a prefix or a suffix and is stripped here.
+    const isGlobal = /(^|\s)--global(\s|$)/.test(rawInput);
+    const raw = rawInput.replace(/(^|\s)--global(\s|$)/g, " ").trim();
     if (!raw) {
       showAppleHelp(ctx);
       return;
@@ -715,7 +719,7 @@ export default function (pi) {
     }
 
     if (cmd === "setup") {
-      await configureHarness(ctx.ui, ctx);
+      await configureHarness(ctx.ui, ctx, isGlobal);
       refreshAppleStatus(ctx);
       return;
     }
@@ -731,32 +735,32 @@ export default function (pi) {
       const config = getLocalConfig();
       if (arg1 === "glm" || arg1 === "glmrada") {
         applyPreset(config, PRESETS.glmRada);
-        saveConfig(config);
+        saveConfig(config, undefined, { isGlobal });
         ctx.ui.notify(
           "Preset přepnut na: GLM-5.3 Apple Rada (OpenCode Go)",
           "info",
         );
       } else if (arg1 === "zenfree" || arg1 === "free") {
         applyPreset(config, PRESETS.zenFree);
-        saveConfig(config);
+        saveConfig(config, undefined, { isGlobal });
         ctx.ui.notify(
           "Preset přepnut na: ZenFree (OpenCode Zen zdarma)",
           "info",
         );
       } else if (arg1 === "quality" || arg1 === "zen") {
         applyPreset(config, PRESETS.quality);
-        saveConfig(config);
+        saveConfig(config, undefined, { isGlobal });
         ctx.ui.notify(
           "Preset přepnut na: Quality / Frontier (OpenCode Zen)",
           "info",
         );
       } else if (arg1 === "high" || arg1 === "highquality") {
         applyPreset(config, PRESETS.highQuality);
-        saveConfig(config);
+        saveConfig(config, undefined, { isGlobal });
         ctx.ui.notify("Preset přepnut na: High Quality (OpenCode Go)", "info");
       } else if (arg1 === "balanced") {
         applyPreset(config, PRESETS.balanced);
-        saveConfig(config);
+        saveConfig(config, undefined, { isGlobal });
         ctx.ui.notify("Preset přepnut na: Balanced (OpenCode Go)", "info");
       } else {
         ctx.ui.notify(
@@ -788,7 +792,7 @@ export default function (pi) {
           defaultModels: customFallbackModels(arg1),
         };
       }
-      saveConfig(config);
+      saveConfig(config, undefined, { isGlobal });
       refreshAppleStatus(ctx);
       ctx.ui.notify(`Provider přepnut na: ${arg1}`, "info");
       return;
@@ -817,7 +821,7 @@ export default function (pi) {
       if (!config.providers[provider].defaultModels)
         config.providers[provider].defaultModels = {};
       config.providers[provider].defaultModels[arg1] = arg2;
-      saveConfig(config);
+      saveConfig(config, undefined, { isGlobal });
       ctx.ui.notify(`Model pro ${arg1} nastaven na: ${arg2}`, "info");
       return;
     }
@@ -831,7 +835,7 @@ export default function (pi) {
 
     let config = getLocalConfig();
     if (!config || !config.configured) {
-      config = await configureHarness(ctx.ui, ctx);
+      config = await configureHarness(ctx.ui, ctx, isGlobal);
     }
 
     if (!config) {
@@ -998,6 +1002,34 @@ export default function (pi) {
   };
 
   const getCompletions = (prefix) => {
+    // `--global` prefix: complete the remainder, then re-prefix the suggestions.
+    const globalTrimmed = prefix.trimStart();
+    if (globalTrimmed.startsWith("--global")) {
+      const afterGlobal = globalTrimmed.slice(8).trimStart();
+      const hasTrailingSpace = globalTrimmed.length > 8 || /\s$/.test(prefix);
+      if (!hasTrailingSpace && afterGlobal === "") {
+        return [
+          {
+            value: "--global ",
+            label: "--global",
+            description: "Uložit nastavení globálně (~/.pi/agent/)",
+          },
+        ];
+      }
+      const subItems = getCompletions(afterGlobal);
+      if (!subItems) return null;
+      const remapped = [];
+      for (const item of subItems) {
+        if (item.label === "--global") continue;
+        remapped.push({
+          value: `--global ${item.value}`,
+          label: item.label,
+          description: item.description,
+        });
+      }
+      return remapped.length > 0 ? remapped : null;
+    }
+
     const tokens = prefix.split(/\s+/).filter(Boolean);
     const trailingSpace = /\s$/.test(prefix);
     const normalizedPrefix = tokens.join(" ").toLowerCase();
@@ -1166,6 +1198,13 @@ export default function (pi) {
         label: key,
         description,
       }));
+    if ("--global".startsWith(typed)) {
+      items.push({
+        value: "--global ",
+        label: "--global",
+        description: "Uložit nastavení globálně (~/.pi/agent/)",
+      });
+    }
     return items.length > 0 ? items : null;
   };
 
@@ -1574,9 +1613,17 @@ export default function (pi) {
   pi.registerCommand("apple-config", {
     description: "Konfigurace modelů a presetů pro Apple Advisory Board",
     getArgumentCompletions: () => null,
-    handler: async (_args, ctx) => {
-      await configureHarness(ctx.ui, ctx);
+    handler: async (args, ctx) => {
+      // `--global` is accepted as a prefix or a suffix.
+      const isGlobal = /(^|\s)--global(\s|$)/.test(String(args || ""));
+      await configureHarness(ctx.ui, ctx, isGlobal);
       refreshAppleStatus(ctx);
+      if (ctx.hasUI) {
+        ctx.ui.notify(
+          `Konfigurace uložena do: ${describeScope(isGlobal, ctx.cwd)}`,
+          "info",
+        );
+      }
     },
   });
 }
