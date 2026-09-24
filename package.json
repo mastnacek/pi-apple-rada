@@ -26,9 +26,9 @@
   ],
   "scripts": {
     "start": "node bin/pi-apple-rada.js",
-    "test": "node --test test/offline.test.js test/config-cascade.test.js",
+    "test": "node --test test/offline.test.js test/config-cascade.test.js test/structure.test.js",
     "test:stream": "node verify-stream.mjs",
-    "test:all": "node --test test/offline.test.js test/config-cascade.test.js && node verify-stream.mjs"
+    "test:all": "node --test test/offline.test.js test/config-cascade.test.js test/structure.test.js && node verify-stream.mjs"
   },
   "keywords": [
     "pi",

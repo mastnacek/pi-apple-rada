@@ -4,6 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+
+// The package root ships pi-apple-rada.config.json; it must never be treated as
+// a user config layer, so tests read it but never write it.
+const pluginRoot = fileURLToPath(new URL("..", import.meta.url));
+const packagedFile = join(pluginRoot, "pi-apple-rada.config.json");
 
 // lib/config.js derives GLOBAL_CONFIG_FILE at import time, so the agent dir has
 // to be redirected before the module is loaded — hence the dynamic import.
@@ -137,5 +143,24 @@ describe("pi-apple-rada config cascade", () => {
 		config.loadConfig(undefined, freshDir);
 
 		assert.equal(config.describeScope(false, freshDir), config.projectConfigPath(freshDir));
+	});
+
+	it("never treats the shipped packaged config as a config layer", () => {
+		// Regression: with the package dir as cwd, the shipped
+		// pi-apple-rada.config.json used to qualify as a workspace layer, so a save
+		// rewrote the shipped defaults.
+		const before = fs.readFileSync(packagedFile, "utf8");
+		config.loadConfig(undefined, pluginRoot);
+
+		assert.notEqual(
+			config.describeScope(false, pluginRoot),
+			packagedFile,
+			"the shipped defaults must never be a config layer or write target",
+		);
+		assert.equal(
+			fs.readFileSync(packagedFile, "utf8"),
+			before,
+			"reading must leave the shipped defaults byte-identical",
+		);
 	});
 });
